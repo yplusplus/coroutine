@@ -1,9 +1,20 @@
 #include <assert.h>
 #include <stdlib.h>
-#include <string.h>    // memset
-#include <stdint.h>    // uintptr_t
+#include <stdint.h>     // uintptr_t
+#include <sys/mman.h>   // mmap munmap
+#include <unistd.h>     // sysconf(_SC_PAGESIZE)
 
 #include "coroutine.h"
+
+static size_t page_size() {
+    long psize = sysconf(_SC_PAGESIZE);
+    return psize;
+}
+
+static size_t page_count(size_t size) {
+    size_t psize = page_size();
+    return (size + psize - 1) / psize;
+}
 
 // doubly linked list
 void remove(coroutine_t **head, coroutine_t *co) {
@@ -41,19 +52,32 @@ static coroutine_t *co_new(coroutine_mgr_t *mgr) {
         return NULL;
     }
     co->mgr = mgr;
-    // TODO mprotect?
-    co->stack = (char *)malloc(mgr->stack_size);
-    if (co->stack == NULL) {
-        // malloc failed
+
+    // two guard page on each side
+    //
+    //  ----------------------------------
+    // | guard | real stack space | guard |
+    //  ----------------------------------
+    //
+    size_t size = (page_count(DEFAULT_STACK_SIZE) + 2) * page_size();
+    char *addr = (char *)mmap(0, size, PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (addr == (char *)MAP_FAILED) {
+        // mmap failed
         free(co);
         return NULL;
     }
+    mprotect(addr, page_size(), PROT_NONE);
+    mprotect(addr + size - page_size(), page_size(), PROT_NONE);
+    co->stack = addr + page_size();
+    co->stack_size = size - 2 * page_size();
+
     return co;
 }
 
 static void co_free(coroutine_t *co) {
     assert(co->stack != NULL);
-    free(co->stack);
+    munmap(co->stack - page_size(), co->stack_size + 2 * page_size());
     co->stack = NULL;
     free(co);
 }
@@ -81,8 +105,10 @@ coroutine_mgr_t *co_mgr_open() {
         // malloc failed!
         return NULL;
     }
-    memset(mgr, 0, sizeof(*mgr));
-    mgr->stack_size = DEFAULT_STACK_SIZE;
+    mgr->current = NULL;
+    mgr->running = NULL;
+    mgr->idle = NULL;
+    mgr->idle_num = 0;
     return mgr;
 }
 
@@ -157,7 +183,7 @@ void co_resume(coroutine_t *co) {
         case COROUTINE_STATE_READY:
             getcontext(&co->uc);
             co->uc.uc_stack.ss_sp = co->stack;
-            co->uc.uc_stack.ss_size = mgr->stack_size;
+            co->uc.uc_stack.ss_size = co->stack_size;
             co->uc.uc_link = &(mgr->main_uc);
             uintptr_t ptr = (uintptr_t)mgr;
             makecontext(&(co->uc), (void (*)(void))co_main_func, 2, (uint32_t)ptr, (uint32_t)(ptr >> 32));

@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <assert.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "coroutine.h"
 
@@ -17,9 +18,13 @@ void print_odd(void *args) {
         printf("%d\n", g_counter);
         co_yield(co1);
     }
+    char buff[60 * 1024];
+    memset(buff, 0, sizeof(buff));
 }
 
 void print_even(void *args) {
+    char buff[60 * 1024];
+    memset(buff, 0, sizeof(buff));
     int i;
     for (i = 0; i < YIELD_TIMES; i++) {
         g_counter++;

@@ -7,8 +7,8 @@
     #include <ucontext.h>
 #endif
 
-#define DEFAULT_POOL_IDLE_NUM (16)                  // 16
-#define DEFAULT_STACK_SIZE (128 * 1024)             // 128K
+#define DEFAULT_POOL_IDLE_NUM (32)                  // 16
+#define DEFAULT_STACK_SIZE (64 * 1024)             
 
 typedef void(*co_func)(void *);
 
@@ -25,6 +25,7 @@ struct coroutine_mgr_t;
 typedef struct coroutine_t {
     enum CoroutineState state;
     char *stack;                    // coroutine stack
+    size_t stack_size;
     ucontext_t uc;
     struct coroutine_mgr_t *mgr;
     co_func func;
@@ -40,7 +41,6 @@ typedef struct coroutine_mgr_t {
     coroutine_t *running;           // all running coroutines(include suspends)
     coroutine_t *idle;              // all idle coroutines
     int idle_num;
-    size_t stack_size;              // coroutine stack size
 } coroutine_mgr_t;
 
 coroutine_mgr_t *co_mgr_open();
